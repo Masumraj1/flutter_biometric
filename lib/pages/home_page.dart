@@ -73,6 +73,7 @@ class _HomePageState extends State<HomePage> {
             });
             _scaffoldKey.currentState?.closeDrawer();
           },
+
           selectedIndex: _currentIndex,
           header: Padding(
             padding: const EdgeInsets.only(top: 20, bottom: 20),
@@ -159,3 +160,5 @@ class ContentPage extends StatelessWidget {
     );
   }
 }
+
+
