@@ -37,108 +37,114 @@
 // }
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:local_auth/local_auth.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
-void main() {
-  runApp(const MyApp());
-}
+void main() => runApp(const MaterialApp(home: BiometricEnrollment()));
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(primarySwatch: Colors.blue, useMaterial3: true),
-      home: const BiometricScreen(),
-    );
-  }
-}
-
-class BiometricScreen extends StatefulWidget {
-  const BiometricScreen({super.key});
+class BiometricEnrollment extends StatefulWidget {
+  const BiometricEnrollment({super.key});
 
   @override
-  State<BiometricScreen> createState() => _BiometricScreenState();
+  State<BiometricEnrollment> createState() => _BiometricEnrollmentState();
 }
 
-class _BiometricScreenState extends State<BiometricScreen> {
+class _BiometricEnrollmentState extends State<BiometricEnrollment> {
   final LocalAuthentication auth = LocalAuthentication();
-  bool _isAuthenticated = false;
+  final storage = const FlutterSecureStorage();
 
-  // অথেন্টিকেশন ফাংশন
-  Future<void> _authenticateUser() async {
+  int currentStep = 0; // ০ = শুরু, ১ = প্রথমবার সম্পন্ন, ২ = কনফার্মড
+  String statusText = "আপনার বায়োমেট্রিক সেটআপ করুন";
+
+  // ফিঙ্গারপ্রিন্ট ভেরিফাই করার ফাংশন
+  Future<bool> _scanBiometric(String reason) async {
     try {
-      // ১. চেক করা যে ডিভাইসে বায়োমেট্রিক সাপোর্ট আছে কিনা
-      final bool canAuthenticateWithBiometrics = await auth.canCheckBiometrics;
-      final bool isDeviceSupported = await auth.isDeviceSupported();
-
-      if (canAuthenticateWithBiometrics || isDeviceSupported) {
-        // ২. বায়োমেট্রিক ডায়ালগ দেখানো
-        final bool didAuthenticate = await auth.authenticate(
-          localizedReason: 'অ্যাপটি আনলক করতে আপনার ফিঙ্গারপ্রিন্ট বা ফেস আইডি ব্যবহার করুন',
-          // options: const AuthenticationOptions(
-          //   stickyAuth: true,      // অ্যাপ ব্যাকগ্রাউন্ডে গেলেও সেশন ধরে রাখবে
-          //   biometricOnly: false,  // এটি false থাকলে পিন/প্যাটার্ন ব্যবহারের সুযোগ দেবে
-          // ),
-        );
-
-        setState(() {
-          _isAuthenticated = didAuthenticate;
-        });
-      } else {
-        _showMessage("আপনার ডিভাইসে বায়োমেট্রিক সুবিধা নেই বা সেটআপ করা নেই।");
-      }
-    } on PlatformException catch (e) {
-      print(e);
-      _showMessage("Error: ${e.message}");
+      return await auth.authenticate(
+        localizedReason: reason,
+        // options: const AuthenticationOptions(
+        //   stickyAuth: true,
+        //   biometricOnly: true,
+        // ),
+      );
+    } catch (e) {
+      debugPrint("Error: $e");
+      return false;
     }
   }
 
-  void _showMessage(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
-    );
+  // মূল প্রসেস
+  void _handleEnrollment() async {
+    // ধাপ ১: প্রথমবার স্ক্যান
+    if (currentStep == 0) {
+      bool success = await _scanBiometric("সেটআপ শুরু করতে আঙুল দিন");
+      if (success) {
+        setState(() {
+          currentStep = 1;
+          statusText = "দারুণ! এবার নিশ্চিত করতে আরেকবার আঙুল দিন।";
+        });
+      }
+    }
+    // ধাপ ২: কনফার্ম করার জন্য দ্বিতীয়বার স্ক্যান
+    else if (currentStep == 1) {
+      bool confirmed = await _scanBiometric("কনফার্ম করতে পুনরায় আঙুল দিন");
+      if (confirmed) {
+        // চিরস্থায়ীভাবে সেভ করে রাখা যে বায়োমেট্রিক সেট হয়েছে
+        await storage.write(key: 'isBiometricSet', value: 'true');
+
+        setState(() {
+          currentStep = 2;
+          statusText = "অভিনন্দন! আপনার ফিঙ্গারপ্রিন্ট লক সেট হয়ে গেছে।";
+        });
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("কনফার্মেশন মেলেনি! আবার চেষ্টা করুন।")),
+        );
+      }
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text("Biometric Auth Demo")),
+      appBar: AppBar(title: const Text("Biometric Lock Setup")),
       body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              _isAuthenticated ? Icons.lock_open_rounded : Icons.lock_rounded,
-              size: 80,
-              color: _isAuthenticated ? Colors.green : Colors.red,
-            ),
-            const SizedBox(height: 20),
-            Text(
-              _isAuthenticated ? "Access Granted!" : "Access Denied / Locked",
-              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 40),
-            ElevatedButton.icon(
-              onPressed: _authenticateUser,
-              icon: const Icon(Icons.fingerprint),
-              label: const Text("Authenticate Now"),
-              style: ElevatedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 15),
+        child: Padding(
+          padding: const EdgeInsets.all(20.0),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              // প্রোগ্রেস ইন্ডিকেটর বা আইকন
+              Icon(
+                currentStep == 2 ? Icons.check_circle : Icons.fingerprint,
+                size: 100,
+                color: currentStep == 2 ? Colors.green : Colors.blue,
               ),
-            ),
-            if (_isAuthenticated)
-              Padding(
-                padding: const EdgeInsets.only(top: 20),
-                child: TextButton(
-                  onPressed: () => setState(() => _isAuthenticated = false),
-                  child: const Text("Logout/Lock"),
+              const SizedBox(height: 30),
+              Text(
+                statusText,
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w500),
+              ),
+              const SizedBox(height: 50),
+
+              if (currentStep < 2)
+                ElevatedButton(
+                  onPressed: _handleEnrollment,
+                  style: ElevatedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 15),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+                  ),
+                  child: Text(currentStep == 0 ? "শুরু করুন" : "কনফার্ম করুন"),
+                )
+              else
+                ElevatedButton(
+                  onPressed: () {
+                    // সেটআপ শেষ, এখন হোম স্ক্রিনে নিয়ে যান
+                  },
+                  child: const Text("অ্যাপে প্রবেশ করুন"),
                 ),
-              ),
-          ],
+            ],
+          ),
         ),
       ),
     );
