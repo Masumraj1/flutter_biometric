@@ -8,7 +8,7 @@ class AuthService {
     try {
       isAuthenticated = await localAuth.authenticate(
         localizedReason: 'Please authenticate to proceed',
-        biometricOnly: false,
+        biometricOnly: true,
       );
       return (isAuthenticated, null);
     } on LocalAuthException catch (e) {
